@@ -309,7 +309,7 @@ const export_files = async (core, files, export_id = -1) => {
 				manifest.succeeded.push({ file: file_name, files: file_manifest });
 			} catch (e) {
 				helper.mark(file_name, false, e.message, e.stack);
-				manifest.failed.push({ file: file_name });
+				manifest.failed.push({ file: file_name, error: e.message });
 			}
 		}
 
@@ -319,6 +319,7 @@ const export_files = async (core, files, export_id = -1) => {
 	}
 
 	export_paths?.close();
+	return manifest;
 };
 
 module.exports = {
@@ -589,5 +590,8 @@ module.exports = {
 		});
 	},
 
-	getActiveRenderer: () => active_renderer
+	getActiveRenderer: () => active_renderer,
+
+	// used by the local api server (js/api-server.js); not a vue option
+	api: { preview_model, export_files }
 };

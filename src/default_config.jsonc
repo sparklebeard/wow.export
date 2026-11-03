@@ -145,5 +145,7 @@
 	"mapViewerWMORenderDistance": 5000,
 	"mapViewerShowGlobalWMO": true,
 	"mapViewerEnableLighting": true,
-	"mapViewerShowEncounters": true
+	"mapViewerShowEncounters": true,
+	"apiServerEnabled": true,
+	"apiServerPort": 17753
 }

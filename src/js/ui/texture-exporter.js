@@ -172,16 +172,17 @@ const exportFiles = async (files, isLocal = false, exportID = -1, isMPQ = false)
 			}
 
 			helper.mark(markFileName, true);
-			manifest.succeeded.push({ type: format, fileDataID, file: exportPath });
+			manifest.succeeded.push({ type: format, fileDataID, source: fileName, file: exportPath });
 		} catch (e) {
 			helper.mark(markFileName, false, e.message, e.stack);
-			manifest.failed.push({ type: format, fileDataID });
+			manifest.failed.push({ type: format, fileDataID, source: fileName, error: e.message });
 		}
 	}
 
 	exportPaths?.close();
 
 	helper.finish();
+	return manifest;
 };
 
 /**
