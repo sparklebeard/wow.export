@@ -407,7 +407,10 @@ const deflateBuffer = util.promisify(zlib.deflate);
 				target: 'node',
 				format: 'cjs',
 				define: {
-					'process.env.BUILD_RELEASE': '"true"'
+					'process.env.BUILD_RELEASE': '"true"',
+					// fork builds have their own GUID and must not pull official updates over themselves;
+					// set DISABLE_AUTO_UPDATE=false at build time to re-enable the upstream update channel.
+					'process.env.DISABLE_AUTO_UPDATE': JSON.stringify(process.env.DISABLE_AUTO_UPDATE ?? 'true')
 				}
 			});
 

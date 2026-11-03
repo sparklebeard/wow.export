@@ -11,7 +11,7 @@
 BUILD_RELEASE = process.env.BUILD_RELEASE === 'true';
 
 // check for --disable-auto-update flag
-const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update');
+const DISABLE_AUTO_UPDATE = nw.App.argv.includes('--disable-auto-update') || process.env.DISABLE_AUTO_UPDATE === 'true';
 
 /**
  * crash() is used to inform the user that the application has exploded.
@@ -584,6 +584,9 @@ document.addEventListener('click', function(e) {
 
 	listfile.preload();
 	dbd_manifest.preload();
+
+	// local http api for external tooling (see js/api-server.js / mcp/)
+	require('./js/api-server').start();
 
 	// Set-up proper drag/drop handlers.
 	let dropStack = 0;
