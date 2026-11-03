@@ -48,6 +48,24 @@ let binary_id_to_pf_index = new Map();
 let binary_strings_mmap = [];
 let binary_tree_nodes_mmap = null;
 
+// mmap `.data` is a native getter that builds a new external ArrayBuffer per access, which is
+// extremely slow in hot loops (e.g. scanning ~2M strings). cache one view per mapped file and
+// drop it if the file has since been unmapped (cache purge) to avoid touching freed memory.
+const mmap_view_cache = new WeakMap();
+const mmap_view = (mmap_obj) => {
+	if (!mmap_obj.isMapped) {
+		mmap_view_cache.delete(mmap_obj);
+		return mmap_obj.data;
+	}
+
+	let view = mmap_view_cache.get(mmap_obj);
+	if (view === undefined) {
+		view = mmap_obj.data;
+		mmap_view_cache.set(mmap_obj, view);
+	}
+	return view;
+};
+
 let is_binary_mode = false;
 
 let preload_textures = null;
@@ -256,7 +274,7 @@ const listfile_preload_binary = async () => {
 const listfile_binary_find_component_child = (node_ofs, component_name) => {
 	const target_hash = hash_xxhash64(component_name);
 
-	const node_data = binary_tree_nodes_mmap.data;
+	const node_data = mmap_view(binary_tree_nodes_mmap);
 	const view = new DataView(node_data.buffer, node_data.byteOffset + node_ofs);
 
 	const child_count = view.getUint32(0, false);
@@ -284,7 +302,7 @@ const listfile_binary_find_component_child = (node_ofs, component_name) => {
 };
 
 const listfile_binary_find_file = (node_ofs, filename) => {
-	const node_data = binary_tree_nodes_mmap.data;
+	const node_data = mmap_view(binary_tree_nodes_mmap);
 	const view = new DataView(node_data.buffer, node_data.byteOffset + node_ofs);
 
 	const child_count = view.getUint32(0, false);
@@ -361,7 +379,7 @@ const listfile_binary_lookup_filename = (filename) => {
 };
 
 const binary_read_string_at_offset = (pf_index, offset) => {
-	const data = binary_strings_mmap[pf_index].data;
+	const data = mmap_view(binary_strings_mmap[pf_index]);
 	let end = offset;
 	while (end < data.length && data[end] !== 0)
 		end++;

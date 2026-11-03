@@ -84,7 +84,7 @@ class M2LegacyExporter {
 					continue;
 				}
 
-				let texFile = path.basename(texturePath);
+				let texFile = path.win32.basename(texturePath);
 				texFile = ExportHelper.replaceExtension(texFile, '.png');
 
 				let texPath;
@@ -343,9 +343,9 @@ class M2LegacyExporter {
 
 					let texOut;
 					if (config.enableSharedTextures)
-						texOut = ExportHelper.getExportPath(texturePath);
+						texOut = ExportHelper.getExportPath(ExportHelper.win32ToPosix(texturePath));
 					else
-						texOut = path.join(outDir, path.basename(texturePath));
+						texOut = path.join(outDir, path.win32.basename(texturePath));
 
 					const buf = new BufferWrapper(Buffer.from(textureData));
 					await buf.writeToFile(texOut);
@@ -380,9 +380,9 @@ class M2LegacyExporter {
 
 						let texOut;
 						if (config.enableSharedTextures)
-							texOut = ExportHelper.getExportPath(texturePath);
+							texOut = ExportHelper.getExportPath(ExportHelper.win32ToPosix(texturePath));
 						else
-							texOut = path.join(outDir, path.basename(texturePath));
+							texOut = path.join(outDir, path.win32.basename(texturePath));
 
 						const buf = new BufferWrapper(Buffer.from(textureData));
 						await buf.writeToFile(texOut);
