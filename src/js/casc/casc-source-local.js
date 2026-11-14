@@ -322,13 +322,26 @@ class CASCLocal extends CASC {
 	 * files needed during local initialization.
 	 */
 	async initializeRemoteCASC() {
-		const remote = new CASCRemote(core.view.selectedCDNRegion.tag);
-		await remote.init();
+		// Several missing files can trigger the fallback at once; share one init.
+		if (!this.remoteInitPromise) {
+			this.remoteInitPromise = (async () => {
+				const remote = new CASCRemote(core.view.selectedCDNRegion.tag);
+				await remote.init();
 
-		const buildIndex = remote.builds.findIndex(build => build.Product === this.build.Product);
-		await remote.preload(buildIndex, this.cache);
+				// builds can contain undefined slots for products with no entry in this region.
+				const buildIndex = remote.builds.findIndex(build => build?.Product === this.build.Product);
+				if (buildIndex === -1)
+					throw new Error('remote CDN has no build for product ' + this.build.Product + ' in region ' + remote.region);
 
-		this.remote = remote;
+				await remote.preload(buildIndex, this.cache);
+				this.remote = remote;
+			})();
+
+			// Allow a retry later if this attempt failed.
+			this.remoteInitPromise.catch(() => { this.remoteInitPromise = null; });
+		}
+
+		await this.remoteInitPromise;
 	}
 
 	/**
