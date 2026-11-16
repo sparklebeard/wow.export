@@ -473,6 +473,98 @@ const preview_model = async (body) => {
 	return { file: file_name, mime: 'image/png', width: canvas.width, height: canvas.height, base64: buf.toBase64() };
 };
 
+// --- characters ----------------------------------------------------------------
+
+const DBItemList = require('./db/caches/DBItemList');
+const { INVENTORY_TYPE_TO_SLOT_ID, get_slot_name } = require('./wow/EquipmentSlots');
+
+/** search equippable items by name (and optionally slot id / minimum quality). */
+const search_items = async (query) => {
+	require_source('casc');
+	await wait_idle();
+	await DBItemList.ensureInitialized();
+
+	const limit = Math.min(Number(query.limit ?? 50), 1000);
+	const needle = (query.q ?? '').toLowerCase();
+	const slot = query.slot !== undefined ? Number(query.slot) : null;
+	const min_quality = Number(query.min_quality ?? 0);
+	const results = [];
+	let total = 0;
+
+	for (const item of DBItemList.getItems()) {
+		if (needle && !item.name.toLowerCase().includes(needle))
+			continue;
+		const slot_id = INVENTORY_TYPE_TO_SLOT_ID[item.inventoryType];
+		if (slot !== null && slot_id !== slot)
+			continue;
+		if (item.quality < min_quality || (item.modelCount + item.textureCount) === 0)
+			continue;
+
+		if (results.length < limit)
+			results.push({ id: item.id, name: item.name, slot_id, slot: slot_id ? get_slot_name(slot_id) : null, quality: item.quality, models: item.modelCount, textures: item.textureCount });
+		total++;
+	}
+
+	return { total, count: results.length, results };
+};
+
+const char_canvas = () => document.querySelector('.char-preview canvas');
+
+const activate_characters = async () => {
+	require_source('casc');
+	await wait_idle();
+	if (core.view.activeModule?.__name !== 'tab_characters')
+		modules.tab_characters.setActive();
+	await wait_until(() => char_canvas() && core.view.chrModelViewerContext?.gl_context && !core.view.isLoading && core.view.chrCustRaces?.length > 0, 'character viewer to initialize');
+};
+
+const char_screenshot = async () => {
+	for (let i = 0; i < 8; i++)
+		await next_frame();
+	const canvas = char_canvas();
+	const buf = await BufferWrapper.fromCanvas(canvas, 'image/png');
+	return { mime: 'image/png', width: canvas.width, height: canvas.height, base64: buf.toBase64() };
+};
+
+/**
+ * load a character into the Characters tab. body.character is a saved-character object
+ * ("My Characters" JSON: race_id, model_id, choices, equipment {slot: itemID}, ...) or body.file a path to one.
+ */
+const load_character = async (body) => {
+	let data = body.character;
+	if (!data && body.file)
+		data = JSON.parse(await fsp.readFile(body.file, 'utf8'));
+	if (!data || typeof data !== 'object')
+		throw new ApiError(400, 'Expected "character" (saved-character object) or "file" (path to a saved-character JSON).');
+
+	await activate_characters();
+	const api = modules.tab_characters.api;
+	api.apply_character_data(core, data);
+	await sleep(300);
+	await wait_until(() => !core.view.chrModelLoading && api.is_settled(1500), 'character and equipment to load');
+
+	const out = { equipped: api.equipped(core) };
+	if (body.screenshot !== false)
+		out.preview = await char_screenshot();
+	return out;
+};
+
+const export_character = async (body) => {
+	await activate_characters();
+	const api = modules.tab_characters.api;
+	await wait_until(() => api.is_settled(500), 'character to settle');
+
+	const overrides = { exportDirectory: body.export_dir, exportCharacterFormat: 'GLTF' };
+	if (body.animations !== undefined)
+		overrides.modelsExportAnimations = !!body.animations;
+
+	const file = await with_config(overrides, () => api.export_gltf(core));
+	await wait_idle('character export');
+	if (!file)
+		throw new ApiError(500, 'Character export failed; see the runtime log.');
+	return { file, equipped: api.equipped(core) };
+};
+
 // --- routing -----------------------------------------------------------------
 
 const CONFIG_WRITABLE = new Set([
@@ -501,6 +593,16 @@ const ROUTES = {
 	'POST /export/models': ({ body }) => enqueue(() => export_models(body)),
 	'POST /preview/texture': ({ body }) => enqueue(() => preview_texture(body)),
 	'POST /preview/model': ({ body }) => enqueue(() => preview_model(body)),
+	'GET /items/search': ({ query }) => enqueue(() => search_items(query)),
+	'POST /character/load': ({ body }) => enqueue(() => load_character(body)),
+	'POST /character/export': ({ body }) => enqueue(() => export_character(body)),
+	'GET /character/tabard-colors': () => enqueue(async () => {
+		await activate_characters();
+		const T = require('./db/caches/DBGuildTabard');
+		const dump = m => [...m.entries()].map(([id, c]) => ({ id, ...c }));
+		return { background: dump(T.getBackgroundColors()), border: dump(T.getBorderColors()), emblem: dump(T.getEmblemColors()) };
+	}),
+	'GET /character/options': () => enqueue(async () => { await activate_characters(); return { model_id: core.view.chrCustModelSelection[0]?.id ?? null, options: modules.tab_characters.api.options(core) }; }),
 	'GET /config': () => Object.fromEntries([...CONFIG_WRITABLE].map(k => [k, core.view.config[k]])),
 	'POST /config': ({ body }) => {
 		for (const [key, value] of Object.entries(body)) {

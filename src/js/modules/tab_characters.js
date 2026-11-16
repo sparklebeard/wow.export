@@ -275,7 +275,25 @@ function reset_module_state() {
 //endregion
 
 //region appearance
+// tracked so the local api (js/api-server.js) can wait for a character to finish loading
+let api_busy = 0;
+let api_last_activity = 0;
+const api_track = async (fn) => {
+	api_busy++;
+	api_last_activity = Date.now();
+	try {
+		return await fn();
+	} finally {
+		api_busy--;
+		api_last_activity = Date.now();
+	}
+};
+
 async function refresh_character_appearance(core) {
+	return api_track(() => refresh_character_appearance_impl(core));
+}
+
+async function refresh_character_appearance_impl(core) {
 	if (!active_renderer || is_importing)
 		return;
 
@@ -863,6 +881,10 @@ function apply_skinned_model_geosets(renderer, geosets) {
 
 //region models
 async function load_character_model(core, file_data_id) {
+	return api_track(() => load_character_model_impl(core, file_data_id));
+}
+
+async function load_character_model_impl(core, file_data_id) {
 	if (!file_data_id || active_model === file_data_id)
 		return;
 
@@ -1548,8 +1570,16 @@ async function load_character(core, character) {
 
 	try {
 		const content = await fsp.readFile(json_path, 'utf8');
-		const data = JSON.parse(content);
+		apply_character_data(core, JSON.parse(content));
+	} catch (e) {
+		log.write('failed to load character: %s', e.message);
+		core.setToast('error', `Failed to load character: ${e.message}`, null, -1);
+	}
+}
 
+// applies a saved-character object (the "My Characters" JSON format) to the viewer
+function apply_character_data(core, data) {
+	{
 		core.view.chrModelLoading = true;
 		core.view.chrSavedCharactersScreen = false;
 
@@ -1580,9 +1610,6 @@ async function load_character(core, character) {
 			core.view.chrCustRaceSelection = [race];
 
 		core.view.chrModelLoading = false;
-	} catch (e) {
-		log.write('failed to load character: %s', e.message);
-		core.setToast('error', `Failed to load character: ${e.message}`, null, -1);
 	}
 }
 
@@ -1921,6 +1948,8 @@ function update_chr_race_list(core) {
 //endregion
 
 //region export
+let last_export_path = null;
+
 const export_char_model = async (core) => {
 	const export_paths = core.openLastExportStream();
 	const format = core.view.config.exportCharacterFormat;
@@ -2094,6 +2123,7 @@ const export_char_model = async (core) => {
 
 			const format_lower = format.toLowerCase();
 			await exporter.exportAsGLTF(export_path, helper, format_lower);
+			last_export_path = export_path;
 			await export_paths?.writeLine('M2_' + format + ':' + export_path);
 
 			if (helper.isCancelled())
@@ -3061,6 +3091,25 @@ module.exports = {
 
 	unmounted() {
 		reset_module_state();
+	},
+
+	// used by the local api server (js/api-server.js); not a vue option
+	api: {
+		apply_character_data,
+		is_settled: (settle_ms) => api_busy === 0 && !!active_renderer && Date.now() - api_last_activity > settle_ms,
+		equipped: (core) => ({ ...core.view.chrEquippedItems }),
+		// current model's customization options with their choices and the active choice
+		options: (core) => core.view.chrCustOptions.map(opt => ({
+			id: opt.id,
+			label: opt.label,
+			active: core.view.chrCustActiveChoices.find(c => c.optionID === opt.id)?.choiceID ?? null,
+			choices: (core.view.optionToChoices.get(opt.id) ?? []).map(c => ({ id: c.id, label: c.label }))
+		})),
+		export_gltf: async (core) => {
+			last_export_path = null;
+			await export_char_model(core);
+			return last_export_path;
+		}
 	}
 };
 

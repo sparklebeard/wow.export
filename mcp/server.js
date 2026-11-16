@@ -190,4 +190,55 @@ server.registerTool('wowexport_config', {
 	inputSchema: { set: z.record(z.string(), z.any()).optional() }
 }, tool(async ({ set }) => text(set ? await call('POST', '/config', set) : await call('GET', '/config'))));
 
+server.registerTool('wowexport_search_items', {
+	description: 'Search equippable items (CASC) by name. slot filters by equipment slot id (1 head, 3 shoulder, 5 chest, 6 waist, 7 legs, 8 feet, 9 wrist, 10 hands, 15 back, 16 main-hand, 17 off-hand, 19 tabard, 4 shirt). Returns item ids for wowexport_load_character.',
+	inputSchema: {
+		query: z.string().optional().describe('Case-insensitive substring of the item name'),
+		slot: z.number().int().optional(),
+		min_quality: z.number().int().min(0).max(7).optional().describe('0 poor .. 4 epic, 5 legendary'),
+		limit: z.number().int().min(1).max(1000).optional()
+	},
+	annotations: { readOnlyHint: true }
+}, tool(async ({ query, slot, min_quality, limit }) => {
+	const qs = new URLSearchParams();
+	if (query) qs.set('q', query);
+	if (slot !== undefined) qs.set('slot', String(slot));
+	if (min_quality !== undefined) qs.set('min_quality', String(min_quality));
+	if (limit) qs.set('limit', String(limit));
+	return text(await call('GET', '/items/search?' + qs));
+}));
+
+server.registerTool('wowexport_load_character', {
+	description: [
+		'Load a character into the Characters tab and return a screenshot of the viewer.',
+		'Pass "character" as a saved-character object (the ~/wow.export/My Characters JSON format: version 2, race_id, model_id, choices [{optionID, choiceID}], equipment {slotID: itemID}),',
+		'or "file" as a path to such a JSON. Waits until the model and all equipment have loaded.'
+	].join(' '),
+	inputSchema: {
+		character: z.record(z.string(), z.any()).optional(),
+		file: z.string().optional(),
+		screenshot: z.boolean().optional()
+	}
+}, tool(async (body) => {
+	const res = await call('POST', '/character/load', body);
+	if (!res.preview)
+		return text(res);
+	const { preview, ...rest } = res;
+	return { content: [{ type: 'image', data: preview.base64, mimeType: preview.mime }, { type: 'text', text: JSON.stringify(rest) }] };
+}));
+
+server.registerTool('wowexport_character_options', {
+	description: 'List the customization options (skin, face, hair style, hair color, beard, ...) of the character model currently loaded in the Characters tab, with every choice id/label and the active choice. Use with wowexport_load_character "choices".',
+	inputSchema: {},
+	annotations: { readOnlyHint: true }
+}, tool(async () => text(await call('GET', '/character/options'))));
+
+server.registerTool('wowexport_export_character', {
+	description: 'Export the character currently loaded in the Characters tab as glTF (with its equipment). Returns the written .gltf path.',
+	inputSchema: {
+		export_dir: z.string().optional().describe('Absolute output directory; defaults to the app export directory'),
+		animations: z.boolean().optional().describe('Include animations (large: hundreds of clips)')
+	}
+}, tool(async (body) => text(await call('POST', '/character/export', body))));
+
 await server.connect(new StdioServerTransport());
