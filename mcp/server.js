@@ -12,7 +12,12 @@ import { z } from 'zod';
 
 const PORT = Number(process.env.WOW_EXPORT_API_PORT ?? 17753);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const APP_PATH = process.env.WOW_EXPORT_APP ?? path.resolve(HERE, '../bin/osx-arm64/wow.export.app');
+const DEFAULT_APP = {
+	darwin: process.arch === 'arm64' ? '../bin/osx-arm64/wow.export.app' : '../bin/osx-x64/wow.export.app',
+	win32: '../bin/win-x64/wow.export.exe',
+	linux: '../bin/linux-x64/wow.export',
+}[process.platform];
+const APP_PATH = process.env.WOW_EXPORT_APP ?? (DEFAULT_APP && path.resolve(HERE, DEFAULT_APP));
 
 const request = (method, route, body) => new Promise((resolve, reject) => {
 	const payload = body === undefined ? null : JSON.stringify(body);
@@ -51,11 +56,14 @@ const call = async (method, route, body) => {
 		if (e.code !== 'ECONNREFUSED')
 			throw e;
 
-		if (launch_attempted || process.platform !== 'darwin' || !existsSync(APP_PATH))
+		if (launch_attempted || !APP_PATH || !existsSync(APP_PATH))
 			throw new Error(`wow.export is not running (no API on 127.0.0.1:${PORT}). Launch the app and try again.`);
 
 		launch_attempted = true;
-		spawn('open', [APP_PATH], { detached: true, stdio: 'ignore' }).unref();
+		if (process.platform === 'darwin')
+			spawn('open', [APP_PATH], { detached: true, stdio: 'ignore' }).unref();
+		else
+			spawn(APP_PATH, [], { detached: true, stdio: 'ignore', cwd: path.dirname(APP_PATH) }).unref();
 		for (let i = 0; i < 60; i++) {
 			await sleep(1000);
 			try {
